@@ -88,13 +88,21 @@ def truncate_ltr(x, rmax):
     x = x_
 
     # compute cluster decomposition
-    for level in range(level_max):
+    for level in range(level_max, -1, -1):
+        count = 0
         for node in find_cluster(root, level):
+            if level < (level_max - 1):
+                cur_indices = np.arange(2*count, 2*(count+1))
+                cur_mode = 2 ** (level + 1)
+            else:
+                cur_indices = node.indices
+                cur_mode = n_mode
+
             shape_core = np.shape(x)
-            other_indices = np.concatenate([np.arange(0, node.indices[0]), np.arange(node.indices[-1], n_mode)])
-            trans_indices = np.concatenate([node.indices, other_indices])
+            other_indices = np.concatenate([np.arange(0, cur_indices[0]), np.arange(cur_indices[-1]+1, cur_mode)])
+            trans_indices = np.concatenate([cur_indices, other_indices])
             x_mat = np.transpose(x, trans_indices)
-            x_mat = np.reshape(x_mat, [np.prod(shape_core[node.indices]), np.prod(shape_core[other_indices])])
+            x_mat = np.reshape(x_mat, [np.prod(shape_core[cur_indices]), np.prod(shape_core[other_indices])])
             u, s, vt = svd(x_mat)
             if len(s) > rmax:
                 u = u[:, :rmax]
