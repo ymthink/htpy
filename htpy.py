@@ -7,6 +7,7 @@
 import numpy as np
 from scipy.linalg import svd
 import scipy.io as sio
+from collections import deque
 
 
 class Node:
@@ -56,7 +57,7 @@ def indices_tree(n_mode):
 # leaf to root truncation
 def truncate_ltr(x, rmax):
     x_ = np.copy(x)
-    shape = np.shape(x)
+    shape = np.array(np.shape(x))
     n_mode = len(shape)
     root, level_max = indices_tree(n_mode)
 
@@ -75,18 +76,35 @@ def truncate_ltr(x, rmax):
         else:
             node.rank = len(s)
         node.set_u(u)
-        shape_core = np.shape(x_)
-        trans_indices = np.concatenate([other_indices, node.indices])
+        shape_core = np.array(np.shape(x_))
+        # if node.indices[0] == 0:
+        trans_indices = np.concatenate([node.indices, other_indices])
         x_ = np.transpose(x_, trans_indices)
-        x_ = np.reshape(x_, [np.prod(shape_core[other_indices]), shape_core[node.indices]])
-        x_ = np.matmul(x_, u.T)
+        x_ = np.reshape(x_, [np.prod(shape_core[node.indices]), np.prod(shape_core[other_indices])])
+        x_ = np.matmul(u.T, x_)
         shape_core[node.indices[0]] = node.rank
         x_ = np.reshape(x_, shape_core[trans_indices])
-        trans_indices = np.concatenate([np.arange(0, node.indices[0]), np.array(n_mode-1), np.arange(node.indices[0], n_mode-1)])
-        x_ = np.transpose(x_, trans_indices)
+
+        # else:
+        #     trans_indices = np.concatenate([other_indices, node.indices])
+        #     x_ = np.transpose(x_, trans_indices)
+        #     x_ = np.reshape(x_, [np.prod(shape_core[other_indices]), np.prod(shape_core[node.indices])])
+        #     x_ = np.matmul(x_, u)
+        #     shape_core[node.indices[0]] = node.rank
+        #     x_ = np.reshape(x_, shape_core[trans_indices])
+
+        new_indices = []
+        for i in range(len(shape_core)):
+            for j in range(len(shape_core)):
+                if trans_indices[j] == i:
+                    new_indices.append(j)
+                    break
+
+        x_ = np.transpose(x_, new_indices)
 
     x = x_
 
+    rmax -= 1
     # compute cluster decomposition
     for level in range(level_max, -1, -1):
         count = 0
@@ -98,7 +116,7 @@ def truncate_ltr(x, rmax):
                 cur_indices = node.indices
                 cur_mode = n_mode
 
-            shape_core = np.shape(x)
+            shape_core = np.array(np.shape(x))
             other_indices = np.concatenate([np.arange(0, cur_indices[0]), np.arange(cur_indices[-1]+1, cur_mode)])
             trans_indices = np.concatenate([cur_indices, other_indices])
             x_mat = np.transpose(x, trans_indices)
@@ -111,67 +129,105 @@ def truncate_ltr(x, rmax):
                 node.rank = rmax
             else:
                 node.rank = len(s)
+                u = u[:, :node.rank]
 
             b = np.reshape(u, [node.left.rank, node.right.rank, node.rank])
             node.set_b(b)
 
-            shape_core = np.shape(x_)
-            other_indices = np.concatenate([np.arange(0, node.indices[0]), np.arange(node.indices[-1], n_mode)])
-            trans_indices = np.concatenate([node.indices, other_indices])
+            shape_core = np.array(np.shape(x_))
+            cur_mode -= count
+            cur_indices -= count
+            other_indices = np.concatenate([np.arange(0, cur_indices[0]), np.arange(cur_indices[-1]+1, cur_mode)])
+            trans_indices = np.concatenate([cur_indices, other_indices])
             x_mat_ = np.transpose(x_, trans_indices)
-            x_mat_ = np.reshape(x_mat_, [np.prod(shape_core[node.indices]), np.prod(shape_core[other_indices])])
+            x_mat_ = np.reshape(x_mat_, [np.prod(shape_core[cur_indices]), np.prod(shape_core[other_indices])])
             u_x_mat_ = np.matmul(u.T, x_mat_)
 
-            cur_indices = []
-            for i in range(len(trans_indices)):
-                if trans_indices[i] < node.indices[0]:
-                    cur_indices.append(trans_indices[i])
-                elif trans_indices[i] > node.indices[-1]:
-                    cur_indices.append(trans_indices[i]-len(node.indices)-1)
-                elif trans_indices == node.indices[0]:
-                    cur_indices.append(node.indices[0])
-
             new_indices = []
-            for i in range(len(cur_indices)):
-                for j in range(len(cur_indices)):
-                    if cur_indices[j] == i:
-                        new_indices.append(j)
+            for i in range(len(trans_indices)):
+                if trans_indices[i] < cur_indices[0]:
+                    new_indices.append(trans_indices[i])
+                elif trans_indices[i] > cur_indices[-1]:
+                    new_indices.append(trans_indices[i]-len(cur_indices)+1)
+                elif trans_indices[i] == cur_indices[0]:
+                    new_indices.append(cur_indices[0])
+
+            trans_indices = []
+            for i in range(len(new_indices)):
+                for j in range(len(new_indices)):
+                    if new_indices[j] == i:
+                        trans_indices.append(j)
                         break
 
-            new_shape = np.concatenate([[node.rank], other_indices])
+            new_shape = np.concatenate([[node.rank], shape_core[other_indices]])
             x_ = np.reshape(u_x_mat_, new_shape)
-            x_ = np.transpose(x_, new_indices)
+            x_ = np.transpose(x_, trans_indices)
+            count += 1
 
         x = x_
 
+    return root, level_max
+
+
+def ht_full(root, level_max):
+    for level in range(level_max, -1, -1):
+        for node in find_cluster(root, level):
+            shape_b = np.array(np.shape(node.b))
+            b_mat = np.reshape(node.b, [node.left.rank, np.prod(shape_b[1:])])
+            shape_left = np.array(np.shape(node.left.u))
+            left_mat = np.reshape(node.left.u, [np.prod(shape_left[:-1]), node.left.rank])
+            left_b_mat = np.matmul(left_mat, b_mat)
+            left_b_mat = np.reshape(left_b_mat, [np.prod(shape_left[:-1]), node.right.rank, node.rank])
+            left_b_mat = np.transpose(left_b_mat, [0, 2, 1])
+            left_b_mat = np.reshape(left_b_mat, [np.prod(shape_left[:-1])*node.rank, node.right.rank])
+            shape_right = np.array(np.shape(node.right.u))
+            right_mat = np.reshape(node.right.u, [np.prod(shape_right[:-1]), node.right.rank])
+            right_mat = np.transpose(right_mat)
+            left_b_right_mat = np.matmul(left_b_mat, right_mat)
+            left_b_right_mat = np.reshape(left_b_right_mat, [np.prod(shape_left[:-1]), node.rank, np.prod(shape_right[:-1])])
+            new_shape = np.concatenate([shape_left[:-1], [node.rank], shape_right[:-1]])
+            left_b_right = np.reshape(left_b_right_mat, new_shape)
+            rank_index = len(shape_left[:-1])
+            new_indices = np.concatenate([np.arange(0, rank_index), np.arange(rank_index+1, len(new_shape)), [rank_index]])
+            left_b_right = np.transpose(left_b_right, new_indices)
+            node.set_u(left_b_right)
+
+    x_ht = np.squeeze(root.u)
+    return x_ht
+
 
 def find_leaf(root):
-    s = []
-    s.append(root)
-    while len(s) > 0:
-        cur_node = s.pop()
+    q = deque()
+    q.append(root)
+    while len(q) > 0:
+        cur_node = q.popleft()
         if cur_node.is_leaf:
             yield cur_node
         else:
-            s.append(cur_node.left)
-            s.append(cur_node.right)
+            q.append(cur_node.left)
+            q.append(cur_node.right)
 
 
 def find_cluster(root, level):
-    s = []
-    s.append(root)
-    while len(s) > 0:
-        cur_node = s.pop()
+    q = deque()
+    q.append(root)
+    while len(q) > 0:
+        cur_node = q.popleft()
         if not cur_node.is_leaf:
-            s.append(cur_node.left)
-            s.append(cur_node.right)
+            q.append(cur_node.left)
+            q.append(cur_node.right)
             if cur_node.level == level:
                 yield cur_node
 
 
 if __name__ == '__main__':
-    root = indices_tree(5)
-    print(root)
+    # x = sio.loadmat('x.mat')['x']
+    x = np.random.random([5, 6, 7, ])
+    root, level_max = truncate_ltr(x, 12)
+    x_ht = ht_full(root, level_max)
+
+    err = x_ht - x
+
 
 
 
