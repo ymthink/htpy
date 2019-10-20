@@ -77,21 +77,21 @@ def truncate_ltr(x, rmax):
             node.rank = len(s)
         node.set_u(u)
         shape_core = np.array(np.shape(x_))
-        # if node.indices[0] == 0:
-        trans_indices = np.concatenate([node.indices, other_indices])
-        x_ = np.transpose(x_, trans_indices)
-        x_ = np.reshape(x_, [np.prod(shape_core[node.indices]), np.prod(shape_core[other_indices])])
-        x_ = np.matmul(u.T, x_)
-        shape_core[node.indices[0]] = node.rank
-        x_ = np.reshape(x_, shape_core[trans_indices])
+        if node.indices[0] == 0:
+            trans_indices = np.concatenate([node.indices, other_indices])
+            x_ = np.transpose(x_, trans_indices)
+            x_ = np.reshape(x_, [np.prod(shape_core[node.indices]), np.prod(shape_core[other_indices])])
+            x_ = np.matmul(u.T, x_)
+            shape_core[node.indices[0]] = node.rank
+            x_ = np.reshape(x_, shape_core[trans_indices])
 
-        # else:
-        #     trans_indices = np.concatenate([other_indices, node.indices])
-        #     x_ = np.transpose(x_, trans_indices)
-        #     x_ = np.reshape(x_, [np.prod(shape_core[other_indices]), np.prod(shape_core[node.indices])])
-        #     x_ = np.matmul(x_, u)
-        #     shape_core[node.indices[0]] = node.rank
-        #     x_ = np.reshape(x_, shape_core[trans_indices])
+        else:
+            trans_indices = np.concatenate([other_indices, node.indices])
+            x_ = np.transpose(x_, trans_indices)
+            x_ = np.reshape(x_, [np.prod(shape_core[other_indices]), np.prod(shape_core[node.indices])])
+            x_ = np.matmul(x_, u)
+            shape_core[node.indices[0]] = node.rank
+            x_ = np.reshape(x_, shape_core[trans_indices])
 
         new_indices = []
         for i in range(len(shape_core)):
@@ -121,15 +121,19 @@ def truncate_ltr(x, rmax):
             trans_indices = np.concatenate([cur_indices, other_indices])
             x_mat = np.transpose(x, trans_indices)
             x_mat = np.reshape(x_mat, [np.prod(shape_core[cur_indices]), np.prod(shape_core[other_indices])])
-            u, s, vt = svd(x_mat)
-            if len(s) > rmax:
-                u = u[:, :rmax]
-                s = s[:rmax]
-                vt = vt[:rmax, :]
-                node.rank = rmax
+            if level == 0:
+                node.rank = 1
+                u = x_mat
             else:
-                node.rank = len(s)
-                u = u[:, :node.rank]
+                u, s, vt = svd(x_mat)
+                if len(s) > rmax:
+                    u = u[:, :rmax]
+                    s = s[:rmax]
+                    vt = vt[:rmax, :]
+                    node.rank = rmax
+                else:
+                    node.rank = len(s)
+                    u = u[:, :node.rank]
 
             b = np.reshape(u, [node.left.rank, node.right.rank, node.rank])
             node.set_b(b)
@@ -222,11 +226,13 @@ def find_cluster(root, level):
 
 if __name__ == '__main__':
     # x = sio.loadmat('x.mat')['x']
-    x = np.random.random([5, 6, 7, ])
-    root, level_max = truncate_ltr(x, 12)
+    x = np.random.random([5, 6, 7, 8, 9])
+    sio.savemat('x.mat', {'x':x})
+    root, level_max = truncate_ltr(x, 50)
     x_ht = ht_full(root, level_max)
 
-    err = x_ht - x
+    err = np.sum(x_ht - x)
+    print(err)
 
 
 
