@@ -231,7 +231,7 @@ if __name__ == '__main__':
     # x = sio.loadmat('x.mat')['x']
     x = np.random.random([5, 6, 7, 8, 9])
     sio.savemat('x.mat', {'x':x})
-    root, level_max = truncate_ltr(x, 50)
+    root, level_max = truncate_ltr(x, rmax=100)
     x_ht = ht_full(root, level_max)
 
     err = np.sum(x_ht - x)
