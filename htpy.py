@@ -30,28 +30,52 @@ class Node:
     def set_b(self, b):
         self.b = b
 
+    @staticmethod
+    def indices_tree(n_mode):
+        s = []
+        root = Node(None, None, np.arange(0, n_mode), 0, False, 0)
+        s.append(root)
+        level_max = 0
+        while len(s) > 0:
+            cur_node = s.pop()
+            if cur_node.level > level_max:
+                level_max = cur_node.level
+            if len(cur_node.indices) > 1:
+                mid = len(cur_node.indices) // 2
+                left_node = Node(None, None, np.arange(cur_node.indices[0], cur_node.indices[mid]), 0, False, cur_node.level+1)
+                right_node = Node(None, None, np.arange(cur_node.indices[mid], cur_node.indices[-1]+1), 0, False, cur_node.level+1)
+                cur_node.left = left_node
+                cur_node.right = right_node
+                s.append(left_node)
+                s.append(right_node)
+            else:
+                cur_node.is_leaf = True
 
-def indices_tree(n_mode):
-    s = []
-    root = Node(None, None, np.arange(0, n_mode), 0, False, 0)
-    s.append(root)
-    level_max = 0
-    while len(s) > 0:
-        cur_node = s.pop()
-        if cur_node.level > level_max:
-            level_max = cur_node.level
-        if len(cur_node.indices) > 1:
-            mid = len(cur_node.indices) // 2
-            left_node = Node(None, None, np.arange(cur_node.indices[0], cur_node.indices[mid]), 0, False, cur_node.level+1)
-            right_node = Node(None, None, np.arange(cur_node.indices[mid], cur_node.indices[-1]+1), 0, False, cur_node.level+1)
-            cur_node.left = left_node
-            cur_node.right = right_node
-            s.append(left_node)
-            s.append(right_node)
-        else:
-            cur_node.is_leaf = True
+        return root, level_max
+        
+    @staticmethod
+    def find_leaf(root):
+        q = deque()
+        q.append(root)
+        while len(q) > 0:
+            cur_node = q.popleft()
+            if cur_node.is_leaf:
+                yield cur_node
+            else:
+                q.append(cur_node.left)
+                q.append(cur_node.right)
 
-    return root, level_max
+    @staticmethod
+    def find_cluster(root, level):
+        q = deque()
+        q.append(root)
+        while len(q) > 0:
+            cur_node = q.popleft()
+            if not cur_node.is_leaf:
+                q.append(cur_node.left)
+                q.append(cur_node.right)
+                if cur_node.level == level:
+                    yield cur_node
 
 
 # leaf to root truncation
@@ -59,10 +83,10 @@ def truncate_ltr(x, rmax):
     x_ = np.copy(x)
     shape = np.array(np.shape(x))
     n_mode = len(shape)
-    root, level_max = indices_tree(n_mode)
+    root, level_max = Node.indices_tree(n_mode)
 
     # compute leaf decomposition
-    for node in find_leaf(root):
+    for node in Node.find_leaf(root):
         other_indices = np.concatenate([np.arange(0, node.indices[0]), np.arange(node.indices[0]+1, n_mode)])
         trans_indices = np.concatenate([node.indices, other_indices])
         x_mat = np.transpose(x, trans_indices)
@@ -108,7 +132,7 @@ def truncate_ltr(x, rmax):
     # compute cluster decomposition
     for level in range(level_max, -1, -1):
         count = 0
-        for node in find_cluster(root, level):
+        for node in Node.find_cluster(root, level):
             if level < (level_max - 1):
                 cur_indices = np.arange(2*count, 2*(count+1))
                 cur_mode = 2 ** (level + 1)
@@ -175,7 +199,7 @@ def truncate_ltr(x, rmax):
 
 def ht_full(root, level_max):
     for level in range(level_max, -1, -1):
-        for node in find_cluster(root, level):
+        for node in Node.find_cluster(root, level):
             shape_b = np.array(np.shape(node.b))
             b_mat = np.reshape(node.b, [node.left.rank, np.prod(shape_b[1:])])
             shape_left = np.array(np.shape(node.left.u))
@@ -200,28 +224,7 @@ def ht_full(root, level_max):
     return x_ht
 
 
-def find_leaf(root):
-    q = deque()
-    q.append(root)
-    while len(q) > 0:
-        cur_node = q.popleft()
-        if cur_node.is_leaf:
-            yield cur_node
-        else:
-            q.append(cur_node.left)
-            q.append(cur_node.right)
 
-
-def find_cluster(root, level):
-    q = deque()
-    q.append(root)
-    while len(q) > 0:
-        cur_node = q.popleft()
-        if not cur_node.is_leaf:
-            q.append(cur_node.left)
-            q.append(cur_node.right)
-            if cur_node.level == level:
-                yield cur_node
 
 
 if __name__ == '__main__':
