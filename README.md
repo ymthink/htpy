@@ -1,5 +1,5 @@
 # htpy
-A Hierarchical Tensor Decomposition libary in Python
+A Hierarchical Tensor Decomposition library in Python
 
 ## Data Structure
 - All component in HT format are defined in a binary tree, which is an instance of class `Node`.
